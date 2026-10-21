@@ -58,10 +58,15 @@ T set -gu @overflow-key
 T run-shell "$LOAD_PLUGIN"
 
 T send-keys -t "$LIVE" 'clear; seq -f "line %g" 1 300' Enter; pause 1
-T send-keys -t "$LIVE" "$TOGGLE" Enter; pause 2
+press() { T send-keys -t "$LIVE" "$TOGGLE" Enter; pause "${1:-1.5}"; }
+panes() { T display -p -t t '#{window_panes}'; }
+even() { T list-panes -t t -F '#{pane_width}' | sort -n | awk 'NR==1{lo=$1} {hi=$1} END{print (hi-lo<=1)}'; }
+col() { T list-panes -t t -F '#{pane_id} #{@overflow_n}' | awk -v n="$1" '$2 == n {print $1}'; }
 
-MID=$(T list-panes -t t -F '#{pane_id} #{pane_index}' | awk '$2 == 1 {print $1}')
-LEFT=$(T list-panes -t t -F '#{pane_id} #{pane_index}' | awk '$2 == 0 {print $1}')
+press; check "first press adds one column" "$(panes)" "2"
+press; check "second press adds another" "$(panes):$(even)" "3:1"
+
+MID=$(col 1); LEFT=$(col 2)
 top=$(T capture-pane -p -t "$LIVE" | num)
 check "middle ends just above the live pane" "$(T capture-pane -p -t "$MID" | lastnum)" "$(( top - 1 ))"
 mtop=$(T capture-pane -p -t "$MID" | num)
@@ -78,32 +83,30 @@ check "wheel-up leaves the column read-only" "$(T display -p -t "$MID" '#{pane_i
 check "columns follow wheel scrolling" "$(T capture-pane -p -t "$MID" | lastnum)" "$(( top - 4 ))"
 T run -t "$MID" -C "$WHEEL_DOWN"; pause 1
 check "wheel-down on a column scrolls the live pane back" "$(T display -p -t "$LIVE" '#{?pane_in_mode,#{scroll_position},0}')" "0"
-if [[ $(T display -p -t "$LIVE" '#{pane_in_mode}') == 1 ]]; then
-  T send-keys -t "$LIVE" -X cancel
-fi
-pause 0.5
+T send-keys -t "$LIVE" -X cancel 2>/dev/null || true; pause 0.5
 
-T send-keys -t "$LIVE" "$TOGGLE" Enter; pause 1
-check "second press drops the farthest column" "$(T display -p -t t '#{window_panes}'):$(T list-panes -t t -F '#{@overflow_n}' | sort | tr -d '\n')" "2:1"
-check "two left share the width evenly" "$(T list-panes -t t -F '#{pane_width}' | sort -n | awk 'NR==1{lo=$1} {hi=$1} END{print (hi-lo<=1)}')" "1"
-T run-shell -t "$(T list-panes -t t -F '#{pane_id} #{@overflow_n}' | awk '$2 == 1 {print $1}')" "$TOGGLE '#{pane_id}'"; pause 1
-check "third press closes the columns, even pressed inside a column" "$(T display -p -t t '#{window_panes}')" "1"
+T run-shell -t "$MID" "$TOGGLE '#{pane_id}'"; pause 1
+check "at 200 wide a third press closes them, even pressed inside a column" "$(panes)" "1"
+
+T resize-window -t t -x 260; pause 0.5
+press; press; press
+check "at 260 wide three presses give four panes" "$(panes):$(even)" "4:1"
+top=$(T capture-pane -p -t "$LIVE" | num)
+check "the farthest column continues the flow" "$(T capture-pane -p -t "$(col 3)" | lastnum)" "$(( top - 81 ))"
+press; check "a fourth press closes them" "$(panes)" "1"
 
 T resize-window -t t -x 130; pause 0.5
-T send-keys -t "$LIVE" "$TOGGLE" Enter; pause 1.5
-check "130 columns gives two columns" "$(T display -p -t t '#{window_width}:#{window_panes}')" "130:2"
-T send-keys -t "$LIVE" "$TOGGLE" Enter; pause 1
+press; check "130 wide: one column" "$(panes)" "2"
+press; check "130 wide: next press closes" "$(panes)" "1"
 T resize-window -t t -x 100; pause 0.5
-T send-keys -t "$LIVE" "$TOGGLE" Enter; pause 1
-check "too narrow: refuses" "$(T display -p -t t '#{window_panes}')" "1"
+press 1; check "too narrow: refuses" "$(panes)" "1"
 
-T resize-window -t t -x 200; pause 0.5
-T send-keys -t "$LIVE" "$TOGGLE" Enter; pause 1.5
+T resize-window -t t -x 260; pause 0.5
+press; press; press
 T resize-window -t t -x 150; pause 1.5
-check "narrowing the window drops a column" "$(T display -p -t t '#{window_panes}')" "2"
-check "columns refit evenly after a resize" "$(T list-panes -t t -F '#{pane_width}' | sort -n | awk 'NR==1{lo=$1} {hi=$1} END{print (hi-lo<=1)}')" "1"
+check "narrowing the window drops columns that no longer fit" "$(panes):$(even)" "2:1"
 T resize-window -t t -x 220; pause 1.5
-check "widening keeps the columns even" "$(T display -p -t t '#{window_panes}'):$(T list-panes -t t -F '#{pane_width}' | sort -n | awk 'NR==1{lo=$1} {hi=$1} END{print (hi-lo<=1)}')" "2:1"
+check "widening keeps the columns even" "$(panes):$(even)" "2:1"
 T kill-pane -t "$LIVE"; pause 1.5
 sessions=$(T list-sessions 2>/dev/null || true)
 check "columns close when the live pane goes" "$sessions" ""
