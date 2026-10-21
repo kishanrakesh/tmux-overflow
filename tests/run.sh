@@ -86,8 +86,8 @@ pause 0.5
 T send-keys -t "$LIVE" "$TOGGLE" Enter; pause 1
 check "second press drops the farthest column" "$(T display -p -t t '#{window_panes}'):$(T list-panes -t t -F '#{@overflow_n}' | sort | tr -d '\n')" "2:1"
 check "two left share the width evenly" "$(T list-panes -t t -F '#{pane_width}' | sort -n | awk 'NR==1{lo=$1} {hi=$1} END{print (hi-lo<=1)}')" "1"
-T send-keys -t "$LIVE" "$TOGGLE" Enter; pause 1
-check "third press closes the columns" "$(T display -p -t t '#{window_panes}')" "1"
+T run-shell -t "$(T list-panes -t t -F '#{pane_id} #{@overflow_n}' | awk '$2 == 1 {print $1}')" "$TOGGLE '#{pane_id}'"; pause 1
+check "third press closes the columns, even pressed inside a column" "$(T display -p -t t '#{window_panes}')" "1"
 
 T resize-window -t t -x 130; pause 0.5
 T send-keys -t "$LIVE" "$TOGGLE" Enter; pause 1.5

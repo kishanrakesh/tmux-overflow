@@ -67,9 +67,12 @@ fit() {
 }
 
 toggle() {
-  local live=$1 mine width panes cols k new self
+  local live=$1 owner mine width panes cols k new self
   live=$(tmux display -p -t "$live" '#{pane_id}' 2>/dev/null)
   [[ $live == %* ]] || { echo "overflow: no such pane" >&2; exit 1; }
+  # Pressed inside a column: act on the live pane it belongs to.
+  owner=$(tmux display -p -t "$live" '#{@overflow_of}')
+  [[ $owner == %* ]] && live=$owner
   # The columns this script opened for that pane carry @overflow_of=<its id>: close those, nothing else.
   # Farthest first, so each press drops one column and the last press closes them.
   # A column without a number (opened by an older version) counts as the farthest.
