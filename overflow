@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# overflow — show a tmux pane's scrollback as read-only columns to its left.
+# Prefix + O (or `overflow` in a pane) toggles the columns. Each shows the screenful above the
+# next, so text reads left -> middle -> right. Columns follow the live pane in copy mode and
+# close when it closes. The plugin also forwards wheel scrolling on columns to the live pane.
+# Output must enter tmux's scrollback. Claude Code needs its classic display ("tui": "default");
+# its fullscreen display does not populate tmux's scrollback, so the columns stay empty.
+#
+#   overflow [PANE]             toggle the columns for PANE (default: the current pane)
+#   overflow --column PANE N    internal: draw the Nth screenful above PANE until PANE closes
+set -uo pipefail
+
+MIN_WIDTH=60   # narrower columns cut Claude Code's lines into unreadable strips
+
+column() {
+  local live=$1 n=$2 last="unset" shot id h s hist off start end row i quiet=99
+  local -a rows
+  printf '\033[?25l\033[?7l'   # hide the cursor; cut long lines instead of wrapping them
+  # Exits once the live pane is gone. tmux 3.4 doesn't fail for a vanished pane id, it prints empty
+  # fields, so the returned id is the test.
+  while IFS=: read -r id h s hist < <(tmux display -p -t "$live" '#{pane_id}:#{pane_height}:#{scroll_position}:#{history_size}' 2>/dev/null) \
+        && [[ $id == "$live" ]]; do
+    s=${s:-0}                  # empty unless the live pane is scrolled (copy mode)
+    off=$(( (n - 1) * h + s )) # history lines between the live pane's top and this column's bottom
+    shot=""
+    if (( off < hist )); then
+      start=$(( -(off + h) )); end=$(( -off - 1 ))
+      (( start < -hist )) && start=$(( -hist ))
+      shot=$(tmux capture-pane -p -e -t "$live" -S "$start" -E "$end" 2>/dev/null) || exit 0
+    fi
+    if [[ $shot != "$last" ]]; then
+      last=$shot
+      rows=()
+      [[ -n $shot ]] && mapfile -t rows <<< "$shot"
+      # Bottom-aligned, so this column's last line runs straight into the next column's first.
+      row=$(( h - ${#rows[@]} ))
+      for (( i = 1; i <= row; i++ )); do printf '\033[%d;1H\033[K' "$i"; done
+      for (( i = 0; i < ${#rows[@]}; i++ )); do
+        printf '\033[%d;1H%s\033[0m\033[K' "$(( row + i + 1 ))" "${rows[i]}"
+      done
+      quiet=0
+    else
+      (( quiet++ ))
+    fi
+    # Fast while the text moves (scrolling or new output), slow once it settles: ~6 ms per check,
+    # so 20 checks a second for a moment, then 2, keeps an idle column under 1% of a core.
+    if (( quiet < 20 )); then sleep 0.05; else sleep 0.5; fi
+  done
+}
+
+toggle() {
+  local live=$1 mine width panes cols k new self
+  live=$(tmux display -p -t "$live" '#{pane_id}' 2>/dev/null)
+  [[ $live == %* ]] || { echo "overflow: no such pane" >&2; exit 1; }
+  # The columns this script opened for that pane carry @overflow_of=<its id>: close those, nothing else.
+  mine=$(tmux list-panes -t "$live" -F '#{pane_id} #{@overflow_of}' | awk -v p="$live" '$2 == p {print $1}')
+  if [[ -n $mine ]]; then
+    for k in $mine; do tmux kill-pane -t "$k"; done
+    return
+  fi
+  read -r width panes < <(tmux display -p -t "$live" '#{pane_width} #{window_panes}')
+  if (( panes > 1 )); then
+    tmux display-message -t "$live" "overflow: needs a window with just this one pane"
+    return
+  fi
+  cols=$(( (width + 1) / (MIN_WIDTH + 1) ))
+  (( cols > 3 )) && cols=3
+  if (( cols < 2 )); then
+    tmux display-message -t "$live" "overflow: this pane is $width columns wide; two columns need $(( 2 * MIN_WIDTH + 1 ))+ (maximise the window or shrink the font)"
+    return
+  fi
+  self=$(readlink -f "$0")
+  for (( k = cols - 1; k >= 1; k-- )); do   # each split lands directly left of the live pane
+    new=$(tmux split-window -h -b -d -t "$live" -P -F '#{pane_id}' "exec '$self' --column '$live' $k") || return
+    tmux set -p -t "$new" @overflow_of "$live"
+  done
+  tmux select-layout -t "$live" even-horizontal
+}
+
+if [[ ${1:-} == --column ]]; then
+  column "$2" "$3"
+else
+  [[ -n ${1:-}${TMUX_PANE:-} ]] || { echo "overflow: run it inside tmux, or name a pane" >&2; exit 1; }
+  toggle "${1:-$TMUX_PANE}"
+fi
