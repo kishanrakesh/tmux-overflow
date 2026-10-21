@@ -51,7 +51,7 @@ set -g history-limit 20000
 1. Start in a tmux window containing one pane, with some output already in its scrollback.
 2. Press prefix + O (uppercase O). One or two columns open to the left; keep working in the original pane on the right.
 3. Scroll the live pane in copy mode, or use the wheel over a column. Each wheel event over a column scrolls the live pane by three lines.
-4. Press prefix + O again from the live pane to close the columns. They also close when the live pane closes.
+4. Press prefix + O again from the live pane to drop the farthest column; the last press closes them. So in a wide window: one press for three columns, a second for two, a third to close. They also close when the live pane closes.
 
 The prefix is Ctrl-b unless you changed it. You can also run the script directly from inside tmux:
 
@@ -76,7 +76,8 @@ Columns carry an `@overflow_of` pane option pointing at the live pane. The wheel
 - Each column needs at least 60 characters of width. Two columns need a window at least 121 characters wide; three need at least 182. At most three columns, including the live pane, are shown.
 - Only text in tmux's scrollback can appear. Fullscreen applications that keep their own history may leave the columns empty.
 - Claude Code users need the classic display, `"tui": "default"`. Its fullscreen display does not put the conversation into tmux's scrollback.
-- The display copies terminal lines, so long lines may be clipped after the window is split. Resizing or changing layouts while columns are open may also leave narrow columns; close them and reopen at the desired window size.
+- The display copies terminal lines, so long lines may be clipped after the window is split.
+- Resizing the window while columns are open re-shares the width evenly, and closes the farthest columns if they no longer fit. Widening does not add columns back; close and reopen for that. Dragging a pane border is left alone.
 
 ## Development
 
@@ -87,7 +88,7 @@ Run from the repository root:
 shellcheck overflow overflow.tmux tests/run.sh
 ```
 
-The 17 integration checks create a uniquely named private tmux server with `-L`, load no user config, and clean up only that server. They cover column alignment, copy-mode following, toggling, width limits, pane cleanup, plugin bindings, a custom key, and wheel redirection. They require Bash, tmux, and the usual shell tools (`seq`, `grep`, `head`, `tail`, and `sed`); ShellCheck is a separate check.
+The 22 integration checks create a uniquely named private tmux server with `-L`, load no user config, and clean up only that server. They cover column alignment, copy-mode following, dropping one column per press, refitting after a resize, width limits, pane cleanup, plugin bindings, a custom key, and wheel redirection. They require Bash, tmux, and the usual shell tools (`seq`, `grep`, `head`, `tail`, and `sed`); ShellCheck is a separate check.
 
 ## License
 

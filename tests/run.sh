@@ -84,7 +84,10 @@ fi
 pause 0.5
 
 T send-keys -t "$LIVE" "$TOGGLE" Enter; pause 1
-check "second toggle closes the columns" "$(T display -p -t t '#{window_panes}')" "1"
+check "second press drops the farthest column" "$(T display -p -t t '#{window_panes}'):$(T list-panes -t t -F '#{@overflow_n}' | sort | tr -d '\n')" "2:1"
+check "two left share the width evenly" "$(T list-panes -t t -F '#{pane_width}' | sort -n | awk 'NR==1{lo=$1} {hi=$1} END{print (hi-lo<=1)}')" "1"
+T send-keys -t "$LIVE" "$TOGGLE" Enter; pause 1
+check "third press closes the columns" "$(T display -p -t t '#{window_panes}')" "1"
 
 T resize-window -t t -x 130; pause 0.5
 T send-keys -t "$LIVE" "$TOGGLE" Enter; pause 1.5
@@ -96,6 +99,11 @@ check "too narrow: refuses" "$(T display -p -t t '#{window_panes}')" "1"
 
 T resize-window -t t -x 200; pause 0.5
 T send-keys -t "$LIVE" "$TOGGLE" Enter; pause 1.5
+T resize-window -t t -x 150; pause 1.5
+check "narrowing the window drops a column" "$(T display -p -t t '#{window_panes}')" "2"
+check "columns refit evenly after a resize" "$(T list-panes -t t -F '#{pane_width}' | sort -n | awk 'NR==1{lo=$1} {hi=$1} END{print (hi-lo<=1)}')" "1"
+T resize-window -t t -x 220; pause 1.5
+check "widening keeps the columns even" "$(T display -p -t t '#{window_panes}'):$(T list-panes -t t -F '#{pane_width}' | sort -n | awk 'NR==1{lo=$1} {hi=$1} END{print (hi-lo<=1)}')" "2:1"
 T kill-pane -t "$LIVE"; pause 1.5
 sessions=$(T list-sessions 2>/dev/null || true)
 check "columns close when the live pane goes" "$sessions" ""

@@ -1,26 +1,32 @@
 #!/usr/bin/env bash
 # overflow — show a tmux pane's scrollback as read-only columns to its left.
-# Prefix + O (or `overflow` in a pane) toggles the columns. Each shows the screenful above the
+# Prefix + O (or `overflow` in a pane) opens the columns; each press after that drops the farthest
+# one, and the last press closes them. Each shows the screenful above the
 # next, so text reads left -> middle -> right. Columns follow the live pane in copy mode and
 # close when it closes. The plugin also forwards wheel scrolling on columns to the live pane.
 # Output must enter tmux's scrollback. Claude Code needs its classic display ("tui": "default");
 # its fullscreen display does not populate tmux's scrollback, so the columns stay empty.
 #
-#   overflow [PANE]             toggle the columns for PANE (default: the current pane)
+#   overflow [PANE]             open the columns for PANE, or drop one (default: the current pane)
 #   overflow --column PANE N    internal: draw the Nth screenful above PANE until PANE closes
 set -uo pipefail
 
 MIN_WIDTH=60   # narrower columns cut Claude Code's lines into unreadable strips
 
 column() {
-  local live=$1 n=$2 last="unset" shot id h s hist off start end row i quiet=99
+  local live=$1 n=$2 last="unset" shot id h s hist w ww="" off start end row i quiet=99
   local -a rows
   printf '\033[?25l\033[?7l'   # hide the cursor; cut long lines instead of wrapping them
   # Exits once the live pane is gone. tmux 3.4 doesn't fail for a vanished pane id, it prints empty
   # fields, so the returned id is the test.
-  while IFS=: read -r id h s hist < <(tmux display -p -t "$live" '#{pane_id}:#{pane_height}:#{scroll_position}:#{history_size}' 2>/dev/null) \
+  while IFS=: read -r id h s hist w < <(tmux display -p -t "$live" '#{pane_id}:#{pane_height}:#{scroll_position}:#{history_size}:#{window_width}' 2>/dev/null) \
         && [[ $id == "$live" ]]; do
     s=${s:-0}                  # empty unless the live pane is scrolled (copy mode)
+    # The nearest column also watches the window width: after a resize, refit the columns.
+    if (( n == 1 )) && [[ $w != "$ww" ]]; then
+      [[ -n $ww ]] && fit "$live" "$w"
+      ww=$w
+    fi
     off=$(( (n - 1) * h + s )) # history lines between the live pane's top and this column's bottom
     shot=""
     if (( off < hist )); then
@@ -48,14 +54,29 @@ column() {
   done
 }
 
+fit() {
+  # After a window resize: close the columns that no longer fit, then share the width evenly.
+  local live=$1 w=$2 keep p
+  keep=$(( (w + 1) / (MIN_WIDTH + 1) - 1 ))   # columns that fit beside the live pane
+  (( keep > 2 )) && keep=2
+  for p in $(tmux list-panes -t "$live" -F '#{pane_id} #{@overflow_of} #{@overflow_n}' |
+             awk -v l="$live" -v k="$keep" '$2 == l && $3 > k {print $1}'); do
+    tmux kill-pane -t "$p"
+  done
+  tmux select-layout -t "$live" even-horizontal 2>/dev/null
+}
+
 toggle() {
   local live=$1 mine width panes cols k new self
   live=$(tmux display -p -t "$live" '#{pane_id}' 2>/dev/null)
   [[ $live == %* ]] || { echo "overflow: no such pane" >&2; exit 1; }
   # The columns this script opened for that pane carry @overflow_of=<its id>: close those, nothing else.
-  mine=$(tmux list-panes -t "$live" -F '#{pane_id} #{@overflow_of}' | awk -v p="$live" '$2 == p {print $1}')
+  # Farthest first, so each press drops one column and the last press closes them.
+  mine=$(tmux list-panes -t "$live" -F '#{@overflow_n} #{pane_id} #{@overflow_of}' |
+         awk -v p="$live" '$3 == p {print $1, $2}' | sort -rn | awk '{print $2}')
   if [[ -n $mine ]]; then
-    for k in $mine; do tmux kill-pane -t "$k"; done
+    tmux kill-pane -t "$(head -1 <<< "$mine")"
+    (( $(wc -l <<< "$mine") > 1 )) && tmux select-layout -t "$live" even-horizontal
     return
   fi
   read -r width panes < <(tmux display -p -t "$live" '#{pane_width} #{window_panes}')
@@ -73,6 +94,7 @@ toggle() {
   for (( k = cols - 1; k >= 1; k-- )); do   # each split lands directly left of the live pane
     new=$(tmux split-window -h -b -d -t "$live" -P -F '#{pane_id}' "exec '$self' --column '$live' $k") || return
     tmux set -p -t "$new" @overflow_of "$live"
+    tmux set -p -t "$new" @overflow_n "$k"
   done
   tmux select-layout -t "$live" even-horizontal
 }
