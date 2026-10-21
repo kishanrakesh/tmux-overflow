@@ -77,8 +77,8 @@ toggle() {
          awk -v p="$live" '$2 == p {print ($3 == "" ? 9 : $3), $1}' | sort -rn | awk '{print $2}')
   if [[ -n $mine ]]; then
     tmux kill-pane -t "$(head -1 <<< "$mine")"
-    (( $(wc -l <<< "$mine") > 1 )) && tmux select-layout -t "$live" even-horizontal
-    return
+    if (( $(wc -l <<< "$mine") > 1 )); then tmux select-layout -t "$live" even-horizontal; fi
+    return 0
   fi
   read -r width panes < <(tmux display -p -t "$live" '#{pane_width} #{window_panes}')
   if (( panes > 1 )); then
