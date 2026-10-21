@@ -60,7 +60,7 @@ fit() {
   keep=$(( (w + 1) / (MIN_WIDTH + 1) - 1 ))   # columns that fit beside the live pane
   (( keep > 2 )) && keep=2
   for p in $(tmux list-panes -t "$live" -F '#{pane_id} #{@overflow_of} #{@overflow_n}' |
-             awk -v l="$live" -v k="$keep" '$2 == l && $3 > k {print $1}'); do
+             awk -v l="$live" -v k="$keep" '$2 == l && ($3 == "" ? 9 : $3) > k {print $1}'); do
     tmux kill-pane -t "$p"
   done
   tmux select-layout -t "$live" even-horizontal 2>/dev/null
@@ -72,8 +72,9 @@ toggle() {
   [[ $live == %* ]] || { echo "overflow: no such pane" >&2; exit 1; }
   # The columns this script opened for that pane carry @overflow_of=<its id>: close those, nothing else.
   # Farthest first, so each press drops one column and the last press closes them.
-  mine=$(tmux list-panes -t "$live" -F '#{@overflow_n} #{pane_id} #{@overflow_of}' |
-         awk -v p="$live" '$3 == p {print $1, $2}' | sort -rn | awk '{print $2}')
+  # A column without a number (opened by an older version) counts as the farthest.
+  mine=$(tmux list-panes -t "$live" -F '#{pane_id} #{@overflow_of} #{@overflow_n}' |
+         awk -v p="$live" '$2 == p {print ($3 == "" ? 9 : $3), $1}' | sort -rn | awk '{print $2}')
   if [[ -n $mine ]]; then
     tmux kill-pane -t "$(head -1 <<< "$mine")"
     (( $(wc -l <<< "$mine") > 1 )) && tmux select-layout -t "$live" even-horizontal
